@@ -154,6 +154,7 @@ function renderSessionSection(params: {
                 </span>
                 ${personOwner
                   ? html`<openclaw-viewer-avatar
+                      .identity=${personOwner.identity}
                       .user=${{
                         id: personOwner.id,
                         name: personOwner.label,

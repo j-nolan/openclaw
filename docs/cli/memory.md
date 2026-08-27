@@ -126,6 +126,12 @@ to `--since`. Selectors match recorded identifiers, not names or text in
 messages. A participant selector selects the whole session, including other
 participants' contributions.
 
+`--participant` intentionally matches raw actor IDs across identity namespaces;
+it is not a profile-only selector. The report's `participantMatches` shows the
+typed identities matching each requested ID, including ambiguous matches.
+Review these identities and the selected whole sessions in `--dry-run --json`
+before deleting. Profile merges do not silently reinterpret a raw selector.
+
 Explicit IDs and keys resolve against live sessions and retained archives.
 The report labels each result `live`, `archived`, or `unresolved`. An
 unresolved explicit value is recorded literally as a session ID for future

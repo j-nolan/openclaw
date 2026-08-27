@@ -13,7 +13,11 @@ function row(
   updatedAt: number,
   overrides: Partial<GatewaySessionRow> = {},
 ) {
-  const actor = { type: "human" as const, ...owner };
+  const actor = {
+    type: "human" as const,
+    ...owner,
+    identity: { type: "profile" as const, id: owner.id },
+  };
   return {
     key,
     kind: "direct",
@@ -25,7 +29,9 @@ function row(
   } satisfies GatewaySessionRow;
 }
 
-function props(overrides: Partial<Parameters<typeof renderSessionActivityView>[0]> = {}) {
+function props(
+  overrides: Partial<Parameters<typeof renderSessionActivityView>[0]> = {},
+): Parameters<typeof renderSessionActivityView>[0] {
   return {
     context: {
       basePath: "",
@@ -39,6 +45,27 @@ function props(overrides: Partial<Parameters<typeof renderSessionActivityView>[0
     presenceViewers: [] as PresenceViewer[],
     retainedIdentity: null,
     rows: [] as GatewaySessionRow[],
+    result: {
+      ts: 1,
+      path: "",
+      count: overrides.rows?.length ?? 0,
+      sessions: [...(overrides.rows ?? [])],
+      defaults: { model: null, modelProvider: null, contextTokens: null },
+      people: [
+        {
+          identity: { type: "profile" as const, id: "online" },
+          label: "Online person",
+          sessionCount: 1,
+        },
+        {
+          identity: { type: "profile" as const, id: "offline" },
+          label: "Offline person",
+          sessionCount: 1,
+        },
+      ],
+    },
+    loading: false,
+    onRetry: vi.fn(),
     expandedAutomationDays: new Set<string>(),
     onAutomationDayToggle: vi.fn(),
     onFiltersChange: vi.fn(),
@@ -66,7 +93,7 @@ describe("session activity people filter", () => {
     document.body.innerHTML = "";
   });
 
-  it("separates raw fallback identities and maps presence dots by exact viewer id", () => {
+  it("uses the server people facet, excludes raw identities, and maps presence by exact profile id", () => {
     const now = Date.now();
     const container = document.createElement("div");
     document.body.append(container);
@@ -101,11 +128,14 @@ describe("session activity people filter", () => {
     ).toBeNull();
     expect(
       container.querySelector('[data-activity-person="offline"] .activity-feed__last-active'),
-    ).not.toBeNull();
-    const unresolved = container.querySelector("[data-activity-unresolved]");
-    expect(unresolved?.textContent).toContain("14759118…");
-    expect(unresolved?.textContent).not.toContain("147591189530201337");
-    expect(unresolved?.querySelector('[data-activity-person="explicit-id"]')).toBeNull();
+    ).toBeNull();
+    expect(container.querySelector('[data-activity-person="147591189530201337"]')).toBeNull();
+    expect(container.querySelector('[data-activity-person="explicit-id"]')).toBeNull();
+    expect(
+      container
+        .querySelector('[data-activity-person="offline"] .activity-feed__people-count')
+        ?.textContent?.trim(),
+    ).toBe("1");
   });
 
   it("shows the client IP and self-reported time zone on the device row", () => {

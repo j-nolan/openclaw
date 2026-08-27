@@ -1,5 +1,9 @@
 /** Private-local SDK subpath for memory session transcript helpers. */
 import type { DatabaseSync } from "node:sqlite";
+import {
+  readParticipantIdentity,
+  type SessionParticipantIdentity,
+} from "../config/sessions/session-participant-identity.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
 import type { DB as OpenClawAgentDatabase } from "../state/openclaw-agent-db.generated.js";
@@ -48,7 +52,7 @@ export type MemorySessionTarget = {
   accountId: string | null;
   chatType: string | null;
   createdAt?: number;
-  participantIds: string[];
+  participants: SessionParticipantIdentity[];
 };
 
 export type MemorySessionSelectors = {
@@ -85,7 +89,7 @@ function projectSessionMetadata(
     chat_type: string | null;
     created_at: number;
   },
-  participantIds: string[] = [],
+  participants: SessionParticipantIdentity[] = [],
 ): MemorySessionTarget {
   return {
     agentId,
@@ -97,7 +101,7 @@ function projectSessionMetadata(
     accountId: row.account_id,
     chatType: row.chat_type,
     createdAt: row.created_at,
-    participantIds,
+    participants,
   };
 }
 
@@ -238,30 +242,29 @@ export function resolveMemorySessionTargets(params: MemorySessionSelectors): Mem
       resolvedSelectors.add(row.session_id);
       resolvedSelectors.add(row.session_key);
     }
-    const participantIds = new Map<string, string[]>();
+    const identities = new Map<string, SessionParticipantIdentity[]>();
     if (rows.length > 0 && hasParticipants) {
       const keys = [...new Set(rows.map((row) => row.session_key))];
       const participantRows = executeSqliteQuerySync(
         db,
         sessionDb
           .selectFrom("session_participants")
-          .select(["session_key", "actor_id"])
+          .select(["session_key", "actor_id", "identity_namespace"])
           .where("session_key", "in", keys)
           .orderBy("session_key")
-          .orderBy("actor_id"),
+          .orderBy("actor_id")
+          .orderBy("identity_namespace"),
       ).rows;
       for (const participant of participantRows) {
-        const ids = participantIds.get(participant.session_key) ?? [];
-        if (!ids.includes(participant.actor_id)) {
-          ids.push(participant.actor_id);
-        }
-        participantIds.set(participant.session_key, ids);
+        const values = identities.get(participant.session_key) ?? [];
+        values.push(readParticipantIdentity(participant.identity_namespace, participant.actor_id));
+        identities.set(participant.session_key, values);
       }
     }
     const targets = new Map(
       rows.map((row) => [
         row.session_id,
-        projectSessionMetadata(params.agentId, row, participantIds.get(row.session_key)),
+        projectSessionMetadata(params.agentId, row, identities.get(row.session_key)),
       ]),
     );
     for (const archive of readSessionArchives(db, sessionIds)) {
@@ -280,7 +283,7 @@ export function resolveMemorySessionTargets(params: MemorySessionSelectors): Mem
         accountId: null,
         chatType: null,
         createdAt: archive.createdAt,
-        participantIds: [],
+        participants: [],
       });
     }
     return [...targets.values()];
@@ -296,7 +299,7 @@ export function resolveMemorySessionTargets(params: MemorySessionSelectors): Mem
         channel: null,
         accountId: null,
         chatType: null,
-        participantIds: [],
+        participants: [],
       });
     }
   }

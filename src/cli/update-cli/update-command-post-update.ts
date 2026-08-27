@@ -245,43 +245,43 @@ export async function finishUpdate(params: {
 
   if (!pluginsUpdatedInFreshProcess) {
     await withOwnedManagedUpdateEnv(params.ownedManagedUpdateEnv, async () => {
-      await withPluginLifecycleLease({}, async () => {
-        postUpdateConfigSnapshot = await readConfigFileSnapshot({
-          skipPluginValidation: true,
-          suppressFutureVersionWarning: shouldResumePostCoreInFreshProcess,
-        });
-        postUpdateConfigSnapshot = await persistRequestedUpdateChannel({
-          configSnapshot: postUpdateConfigSnapshot,
-          requestedChannel: params.requestedChannel,
-        });
-        const restoredConfig = restoreDroppedPreUpdateChannels(
-          postUpdateConfigSnapshot,
-          params.configSnapshot.valid
-            ? {
-                sourceConfig: params.configSnapshot.sourceConfig,
-                authoredConfig: isRecord(params.configSnapshot.parsed)
-                  ? (params.configSnapshot.parsed as OpenClawConfig)
-                  : params.configSnapshot.sourceConfig,
-              }
-            : undefined,
-        );
-        postUpdateConfigSnapshot = restoredConfig.snapshot;
-        // Current-process post-core convergence still reports the pre-update
-        // VERSION. During downgrades, pin compatibility checks to the installed
-        // target so incompatible newer plugins are disabled before restart.
-        const postUpdateInstalledVersion = await readPackageVersion(postUpdateRoot);
-        const versionComparison =
-          postUpdateInstalledVersion && VERSION
-            ? compareSemverStrings(VERSION, postUpdateInstalledVersion)
-            : null;
-        const compatibilityDowngradeTarget =
-          versionComparison != null && versionComparison > 0 ? postUpdateInstalledVersion : null;
-        const previousCompatibilityHostVersion = process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION;
-        if (compatibilityDowngradeTarget) {
-          process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION = compatibilityDowngradeTarget;
-        }
-        try {
-          const initialPluginUpdate = await updatePluginsAfterCoreUpdate({
+      // Current-process post-core convergence still reports the pre-update
+      // VERSION. During downgrades, pin compatibility checks to the installed
+      // target so incompatible newer plugins are disabled before restart.
+      const postUpdateInstalledVersion = await readPackageVersion(postUpdateRoot);
+      const versionComparison =
+        postUpdateInstalledVersion && VERSION
+          ? compareSemverStrings(VERSION, postUpdateInstalledVersion)
+          : null;
+      const compatibilityDowngradeTarget =
+        versionComparison != null && versionComparison > 0 ? postUpdateInstalledVersion : null;
+      const previousCompatibilityHostVersion = process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION;
+      if (compatibilityDowngradeTarget) {
+        process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION = compatibilityDowngradeTarget;
+      }
+      try {
+        const initialPluginUpdate = await withPluginLifecycleLease({}, async () => {
+          postUpdateConfigSnapshot = await readConfigFileSnapshot({
+            skipPluginValidation: true,
+            suppressFutureVersionWarning: shouldResumePostCoreInFreshProcess,
+          });
+          postUpdateConfigSnapshot = await persistRequestedUpdateChannel({
+            configSnapshot: postUpdateConfigSnapshot,
+            requestedChannel: params.requestedChannel,
+          });
+          const restoredConfig = restoreDroppedPreUpdateChannels(
+            postUpdateConfigSnapshot,
+            params.configSnapshot.valid
+              ? {
+                  sourceConfig: params.configSnapshot.sourceConfig,
+                  authoredConfig: isRecord(params.configSnapshot.parsed)
+                    ? (params.configSnapshot.parsed as OpenClawConfig)
+                    : params.configSnapshot.sourceConfig,
+                }
+              : undefined,
+          );
+          postUpdateConfigSnapshot = restoredConfig.snapshot;
+          return await updatePluginsAfterCoreUpdate({
             root: postUpdateRoot,
             channel: params.channel,
             configSnapshot: postUpdateConfigSnapshot,
@@ -289,33 +289,32 @@ export async function finishUpdate(params: {
             restoredAuthoredChannels: restoredConfig.authoredChannels,
             opts: params.opts,
             timeoutMs: params.updateStepTimeoutMs,
-            pluginInstallRecords: params.preUpdatePluginInstallRecords,
+            pluginInstallRecords: await loadInstalledPluginIndexInstallRecords(),
           });
-          const completedPluginUpdate = await completePostCorePluginUpdate({
-            root: postUpdateRoot,
-            pluginUpdate: initialPluginUpdate,
-            // Aggregate plugin changes and core install changes independently require fresh doctor.
-            freshDoctorRequired:
-              didCoreUpdateChangeInstall(params.result) || initialPluginUpdate.changed,
-            yes: params.opts.yes === true,
-            json: params.opts.json === true,
-            timeoutMs: params.updateStepTimeoutMs,
-            ...(params.packageUpdateNodeRunner
-              ? { nodeRunner: params.packageUpdateNodeRunner }
-              : {}),
-          });
-          postCorePluginUpdate = completedPluginUpdate.pluginUpdate;
-          postUpdateConfigSnapshot = completedPluginUpdate.configSnapshot;
-        } finally {
-          if (compatibilityDowngradeTarget) {
-            if (previousCompatibilityHostVersion === undefined) {
-              delete process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION;
-            } else {
-              process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION = previousCompatibilityHostVersion;
-            }
+        });
+        // The fresh doctor acquires the same lease in a separate process.
+        const completedPluginUpdate = await completePostCorePluginUpdate({
+          root: postUpdateRoot,
+          pluginUpdate: initialPluginUpdate,
+          // Aggregate plugin changes and core install changes independently require fresh doctor.
+          freshDoctorRequired:
+            didCoreUpdateChangeInstall(params.result) || initialPluginUpdate.changed,
+          yes: params.opts.yes === true,
+          json: params.opts.json === true,
+          timeoutMs: params.updateStepTimeoutMs,
+          ...(params.packageUpdateNodeRunner ? { nodeRunner: params.packageUpdateNodeRunner } : {}),
+        });
+        postCorePluginUpdate = completedPluginUpdate.pluginUpdate;
+        postUpdateConfigSnapshot = completedPluginUpdate.configSnapshot;
+      } finally {
+        if (compatibilityDowngradeTarget) {
+          if (previousCompatibilityHostVersion === undefined) {
+            delete process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION;
+          } else {
+            process.env.OPENCLAW_COMPATIBILITY_HOST_VERSION = previousCompatibilityHostVersion;
           }
         }
-      });
+      }
     });
   }
 

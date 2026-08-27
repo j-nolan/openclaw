@@ -31,23 +31,18 @@ import {
   writePostCorePluginUpdateResultFile,
 } from "./update-command-post-core.js";
 
-type ResumePostCoreUpdateParams = {
+export async function resumePostCoreUpdate(params: {
   root: string;
   channel: string | undefined;
   opts: UpdateCommandOptions;
   timeoutMs: number;
-};
-
-export async function resumePostCoreUpdate(params: ResumePostCoreUpdateParams): Promise<void> {
-  return await withPluginLifecycleLease({}, async () => await resumePostCoreUpdateUnlocked(params));
-}
-
-async function resumePostCoreUpdateUnlocked(params: ResumePostCoreUpdateParams): Promise<void> {
+}): Promise<void> {
+  const channel = params.channel;
   if (
-    params.channel !== "stable" &&
-    params.channel !== "extended-stable" &&
-    params.channel !== "beta" &&
-    params.channel !== "dev"
+    channel !== "stable" &&
+    channel !== "extended-stable" &&
+    channel !== "beta" &&
+    channel !== "dev"
   ) {
     defaultRuntime.error("Missing post-core update channel context.");
     defaultRuntime.exit(1);
@@ -85,46 +80,47 @@ async function resumePostCoreUpdateUnlocked(params: ResumePostCoreUpdateParams):
     json: params.opts.json === true,
     timeoutMs: params.timeoutMs,
   });
-  // The fresh process owns the updated migration contracts. Repair before
-  // plugin convergence writes config, or newly retired plugin keys can block
-  // the update before doctor gets a chance to migrate them.
-  configSnapshot = await readConfigFileSnapshot({
-    skipPluginValidation: true,
-    suppressFutureVersionWarning: true,
-  });
-  configSnapshot = await persistRequestedUpdateChannel({
-    configSnapshot,
-    requestedChannel,
-  });
-  const restoredConfig = restoreDroppedPreUpdateChannels(configSnapshot, preUpdateSourceConfig);
-  const parentPluginInstallRecords = await readPostCorePluginInstallRecordsFile(
-    process.env[POST_CORE_UPDATE_INSTALL_RECORDS_PATH_ENV],
-  );
-  // The updated doctor may have repaired or removed plugin installs before this process resumed.
-  const currentPluginInstallRecords = await loadInstalledPluginIndexInstallRecords();
-  const persistedPluginIndex = await readPersistedInstalledPluginIndex();
-  const hasForwardedUpdateStart = Boolean(process.env[POST_CORE_UPDATE_STARTED_AT_ENV]?.trim());
-  const currentIndexIsAuthoritative =
-    Object.keys(currentPluginInstallRecords).length > 0 ||
-    Boolean(
-      persistedPluginIndex &&
-      hasForwardedUpdateStart &&
-      updateStartedAtMs !== undefined &&
-      persistedPluginIndex.generatedAtMs >= updateStartedAtMs,
+  // Fresh doctor needs its own lease. Reacquire only for mutation, then read the
+  // authoritative state; another lifecycle writer may have committed meanwhile.
+  const initialPluginUpdate = await withPluginLifecycleLease({}, async () => {
+    configSnapshot = await readConfigFileSnapshot({
+      skipPluginValidation: true,
+      suppressFutureVersionWarning: true,
+    });
+    configSnapshot = await persistRequestedUpdateChannel({
+      configSnapshot,
+      requestedChannel,
+    });
+    const restoredConfig = restoreDroppedPreUpdateChannels(configSnapshot, preUpdateSourceConfig);
+    const parentPluginInstallRecords = await readPostCorePluginInstallRecordsFile(
+      process.env[POST_CORE_UPDATE_INSTALL_RECORDS_PATH_ENV],
     );
-  const pluginInstallRecords = currentIndexIsAuthoritative
-    ? currentPluginInstallRecords
-    : parentPluginInstallRecords;
+    // The updated doctor may have repaired or removed plugin installs before this process resumed.
+    const currentPluginInstallRecords = await loadInstalledPluginIndexInstallRecords();
+    const persistedPluginIndex = await readPersistedInstalledPluginIndex();
+    const hasForwardedUpdateStart = Boolean(process.env[POST_CORE_UPDATE_STARTED_AT_ENV]?.trim());
+    const currentIndexIsAuthoritative =
+      Object.keys(currentPluginInstallRecords).length > 0 ||
+      Boolean(
+        persistedPluginIndex &&
+        hasForwardedUpdateStart &&
+        updateStartedAtMs !== undefined &&
+        persistedPluginIndex.generatedAtMs >= updateStartedAtMs,
+      );
+    const pluginInstallRecords = currentIndexIsAuthoritative
+      ? currentPluginInstallRecords
+      : parentPluginInstallRecords;
 
-  const initialPluginUpdate = await updatePluginsAfterCoreUpdate({
-    root: params.root,
-    channel: params.channel,
-    configSnapshot: restoredConfig.snapshot,
-    configChanged: restoredConfig.changed,
-    restoredAuthoredChannels: restoredConfig.authoredChannels,
-    opts: params.opts,
-    timeoutMs: params.timeoutMs,
-    pluginInstallRecords,
+    return await updatePluginsAfterCoreUpdate({
+      root: params.root,
+      channel,
+      configSnapshot: restoredConfig.snapshot,
+      configChanged: restoredConfig.changed,
+      restoredAuthoredChannels: restoredConfig.authoredChannels,
+      opts: params.opts,
+      timeoutMs: params.timeoutMs,
+      pluginInstallRecords,
+    });
   });
   const { pluginUpdate } = await completePostCorePluginUpdate({
     root: params.root,

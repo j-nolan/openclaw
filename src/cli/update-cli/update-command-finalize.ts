@@ -175,15 +175,12 @@ export async function updateFinalizeCommand(opts: UpdateFinalizeOptions): Promis
     process.env[UPDATE_EFFECTIVE_CHANNEL_ENV]?.trim(),
   );
   const channel = requestedChannel ?? storedChannel ?? effectiveChannel ?? DEFAULT_PACKAGE_CHANNEL;
-  if (requestedChannel) {
-    configSnapshot = await persistRequestedUpdateChannel({
-      configSnapshot,
-      requestedChannel,
-    });
-  }
-
-  const completedPluginUpdate = await withPluginLifecycleLease({}, async () => {
-    const initialPluginUpdate = await withPrePluginUpdateDoctorEnv(async () => {
+  const initialPluginUpdate = await withPluginLifecycleLease({}, async () => {
+    configSnapshot = await readConfigFileSnapshot({ skipPluginValidation: true });
+    if (requestedChannel) {
+      configSnapshot = await persistRequestedUpdateChannel({ configSnapshot, requestedChannel });
+    }
+    return await withPrePluginUpdateDoctorEnv(async () => {
       await runTimedFinalizePhase({
         finalizationStartedAt,
         phaseTimings,
@@ -251,26 +248,27 @@ export async function updateFinalizeCommand(opts: UpdateFinalizeOptions): Promis
               : "completed",
       });
     });
-    return await runTimedFinalizePhase({
-      finalizationStartedAt,
-      phaseTimings,
-      phase: "targetConfigConvergence",
-      run: async () =>
-        await completePostCorePluginUpdate({
-          root,
-          pluginUpdate: initialPluginUpdate,
-          freshDoctorRequired: initialPluginUpdate.changed,
-          yes: opts.yes === true,
-          json: opts.json === true,
-          timeoutMs: timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS,
-        }),
-      outcome: (result) =>
-        result.pluginUpdate.status === "error"
-          ? "failed"
-          : result.pluginUpdate.status === "warning"
-            ? "warning"
-            : "completed",
-    });
+  });
+  // Only the in-process doctor is reentrant; release before the fresh child.
+  const completedPluginUpdate = await runTimedFinalizePhase({
+    finalizationStartedAt,
+    phaseTimings,
+    phase: "targetConfigConvergence",
+    run: async () =>
+      await completePostCorePluginUpdate({
+        root,
+        pluginUpdate: initialPluginUpdate,
+        freshDoctorRequired: initialPluginUpdate.changed,
+        yes: opts.yes === true,
+        json: opts.json === true,
+        timeoutMs: timeoutMs ?? DEFAULT_UPDATE_STEP_TIMEOUT_MS,
+      }),
+    outcome: (result) =>
+      result.pluginUpdate.status === "error"
+        ? "failed"
+        : result.pluginUpdate.status === "warning"
+          ? "warning"
+          : "completed",
   });
   const pluginUpdate = completedPluginUpdate.pluginUpdate;
   configSnapshot = completedPluginUpdate.configSnapshot;

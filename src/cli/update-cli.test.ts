@@ -3661,7 +3661,7 @@ describe("update-cli", () => {
       },
     } as OpenClawConfig;
     vi.mocked(readConfigFileSnapshot).mockResolvedValue(configSnapshot(config));
-    loadInstalledPluginIndexInstallRecords.mockResolvedValueOnce({
+    loadInstalledPluginIndexInstallRecords.mockResolvedValue({
       demo: {
         source: "npm",
         spec: "@openclaw/demo@1.0.0",
@@ -7099,7 +7099,7 @@ describe("update-cli", () => {
     const sourceConfig = {
       plugins: {},
     } as OpenClawConfig;
-    loadInstalledPluginIndexInstallRecords.mockResolvedValueOnce(pluginInstallRecords);
+    loadInstalledPluginIndexInstallRecords.mockResolvedValue(pluginInstallRecords);
     vi.mocked(readConfigFileSnapshot).mockResolvedValue({
       ...baseSnapshot,
       sourceConfig,
@@ -8088,10 +8088,11 @@ describe("update-cli", () => {
         spec: "post-plugin@1.0.0",
       },
     } satisfies Record<string, PluginInstallRecord>;
-    vi.mocked(readConfigFileSnapshot)
-      .mockResolvedValueOnce(preDoctorSnapshot)
-      .mockResolvedValueOnce(postDoctorSnapshot)
-      .mockResolvedValueOnce(postDoctorSnapshot);
+    let currentSnapshot = preDoctorSnapshot;
+    vi.mocked(readConfigFileSnapshot).mockImplementation(async () => currentSnapshot);
+    vi.mocked(doctorCommand).mockImplementationOnce(async () => {
+      currentSnapshot = postDoctorSnapshot;
+    });
     loadInstalledPluginIndexInstallRecords.mockResolvedValueOnce(postDoctorRecords);
     syncPluginsForUpdateChannel.mockImplementationOnce(
       async (params: { config?: OpenClawConfig }) =>
@@ -8193,11 +8194,11 @@ describe("update-cli", () => {
       parsed: baseSnapshot.parsed,
       hash: "post-doctor",
     });
-    vi.mocked(readConfigFileSnapshot)
-      .mockResolvedValueOnce(preDoctorSnapshot)
-      .mockResolvedValueOnce(preDoctorSnapshot)
-      .mockResolvedValueOnce(postDoctorSnapshot)
-      .mockResolvedValueOnce(postDoctorSnapshot);
+    let currentSnapshot = preDoctorSnapshot;
+    vi.mocked(readConfigFileSnapshot).mockImplementation(async () => currentSnapshot);
+    vi.mocked(doctorCommand).mockImplementationOnce(async () => {
+      currentSnapshot = postDoctorSnapshot;
+    });
 
     await updateFinalizeCommand({ channel: "dev", json: true, restart: false });
 

@@ -37,23 +37,46 @@ export type SettingsSectionProps = {
   danger?: boolean;
 };
 
+export type SettingsPageHeaderProps = {
+  title: unknown;
+  subtitle?: unknown;
+  actions?: TemplateResult;
+};
+
 export function renderSettingsPage(
   children: unknown,
-  options: { wide?: boolean; intro?: unknown } = {},
+  options: { wide?: boolean } = {},
 ): TemplateResult {
   const className = options.wide ? "settings-page settings-page--wide" : "settings-page";
-  return html`
-    <div class=${className}>
-      ${options.intro ? html`<p class="settings-page__intro">${options.intro}</p>` : nothing}
-      ${children}
-    </div>
-  `;
+  return html`<div class=${className}>${children}</div>`;
 }
 
 export function renderDocsLink(url: string, label: unknown): TemplateResult {
   return html`<a href=${url} target=${EXTERNAL_LINK_TARGET} rel=${buildExternalLinkRel()}
     >${label}</a
   >`;
+}
+
+export function renderLearnMoreLink(url: string): TemplateResult {
+  return html`<a
+    class="learn-more-link"
+    href=${url}
+    target=${EXTERNAL_LINK_TARGET}
+    rel=${buildExternalLinkRel()}
+    >${t("common.learnMore")}</a
+  >`;
+}
+
+export function renderSettingsPageHeader(props: SettingsPageHeaderProps): TemplateResult {
+  return html`
+    <section class="content-header">
+      <div>
+        <div class="page-title">${props.title}</div>
+        ${props.subtitle ? html`<div class="page-subtitle">${props.subtitle}</div>` : nothing}
+      </div>
+      ${props.actions ? html`<div class="page-header-actions">${props.actions}</div>` : nothing}
+    </section>
+  `;
 }
 
 /** Section = plain text heading + one group surface containing rows. */

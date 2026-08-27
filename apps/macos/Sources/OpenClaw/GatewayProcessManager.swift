@@ -1150,8 +1150,8 @@ extension GatewayProcessManager {
 
     private func probeGatewayHealth(timeoutMs: Double) async throws -> Data {
         let connection = self.connection
-        // Startup owns recovery and its wall-clock deadline. A normal request can recursively
-        // start the Gateway and spend several 30-second connect retries before its RPC timer begins.
+        // Readiness owns recovery and the deadline across connect and RPC. A competing RPC
+        // timer can win with an unclassified timeout error and suppress launchd repair.
         return try await AsyncTimeout.withTimeout(
             seconds: max(0.001, timeoutMs / 1000),
             onTimeout: { GatewayHealthProbeTimeout(timeoutMs: timeoutMs) },
@@ -1159,7 +1159,7 @@ extension GatewayProcessManager {
                 try await connection.request(
                     method: GatewayConnection.Method.health.rawValue,
                     params: nil,
-                    timeoutMs: timeoutMs,
+                    timeoutMs: 0,
                     retryTransportFailures: false)
             })
     }
